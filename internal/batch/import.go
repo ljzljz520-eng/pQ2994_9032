@@ -41,15 +41,13 @@ func (i *Importer) Import(records []model.ScanRecord, source, operator string) (
 	}
 	results := make([]model.ImportResult, 0, len(records))
 	for _, record := range records {
-		release, err := i.Service.OpenRecord()
+		result, err := i.processRecordWithSession(record, operator)
 		if err != nil {
 			batch.Failed++
 			results = append(results, model.ImportResult{Line: record.Line, Serial: record.Serial, Status: "failed", Message: err.Error()})
 			_ = store.SaveBatch(i.Service.Store, batch)
 			return batch, results, fmt.Errorf("import line %d: %w", record.Line, err)
 		}
-		defer release()
-		result := i.processRecord(record, operator)
 		results = append(results, result)
 		if result.Status == "accepted" {
 			batch.Succeeded++
@@ -66,6 +64,17 @@ func (i *Importer) Import(records []model.ScanRecord, source, operator string) (
 		return batch, results, err
 	}
 	return batch, results, nil
+}
+
+// processRecordWithSession scopes the session release to one record so the
+// next record can acquire the resource before the batch import continues.
+func (i *Importer) processRecordWithSession(record model.ScanRecord, operator string) (model.ImportResult, error) {
+	release, err := i.Service.OpenRecord()
+	if err != nil {
+		return model.ImportResult{}, err
+	}
+	defer release()
+	return i.processRecord(record, operator), nil
 }
 
 func (i *Importer) processRecord(record model.ScanRecord, operator string) model.ImportResult {
