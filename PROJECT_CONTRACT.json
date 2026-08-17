@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "metrics": {
+    "production_loc": 2300,
+    "production_files": 18,
+    "production_packages": 8,
+    "test_files": 9,
+    "production_functions": 183,
+    "decision_points": 340
+  },
+  "persistence": {
+    "module": "go.etcd.io/bbolt",
+    "entities": [
+      "Device",
+      "KeyEnvelope",
+      "RotationRequest",
+      "AuditEntry"
+    ],
+    "reopen_test": "TestPersistenceSurvivesReopen"
+  },
+  "workflows": [
+    {
+      "steps": [
+        "register a scanner serial and public key",
+        "wrap a communication secret into a key envelope",
+        "submit and approve the rotation request",
+        "recover the secret and export audit rows"
+      ],
+      "test": "TestRegisterRotateAuditExport"
+    },
+    {
+      "steps": [
+        "read a fixed batch of scanner records",
+        "resolve each record to a registered device",
+        "recover valid and reject malformed ciphertext",
+        "persist counts and emit audit results"
+      ],
+      "test": "TestBatchImportAuditTrail"
+    },
+    {
+      "steps": [
+        "open the bbolt database",
+        "save a registered device entity",
+        "close and reopen the database",
+        "read the device after reopening"
+      ],
+      "test": "TestPersistenceSurvivesReopen"
+    }
+  ]
+}
