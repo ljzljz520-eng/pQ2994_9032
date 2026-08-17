@@ -41,15 +41,17 @@ func (i *Importer) Import(records []model.ScanRecord, source, operator string) (
 	}
 	results := make([]model.ImportResult, 0, len(records))
 	for _, record := range records {
-		release, err := i.Service.OpenRecord()
+		// Acquiring and releasing the record slot is scoped to a single record so
+		// the slot is freed before the next record is read. Deferring release inside
+		// the loop would hold every slot until Import returned and exhaust the pool
+		// after the first record, so the work happens in processRecordWithSlot.
+		result, err := i.processRecordWithSlot(record, operator)
 		if err != nil {
 			batch.Failed++
-			results = append(results, model.ImportResult{Line: record.Line, Serial: record.Serial, Status: "failed", Message: err.Error()})
+			results = append(results, result)
 			_ = store.SaveBatch(i.Service.Store, batch)
-			return batch, results, fmt.Errorf("import line %d: %w", record.Line, err)
+			return batch, results, err
 		}
-		defer release()
-		result := i.processRecord(record, operator)
 		results = append(results, result)
 		if result.Status == "accepted" {
 			batch.Succeeded++
@@ -66,6 +68,19 @@ func (i *Importer) Import(records []model.ScanRecord, source, operator string) (
 		return batch, results, err
 	}
 	return batch, results, nil
+}
+
+// processRecordWithSlot acquires a record slot, processes a single record, and
+// releases the slot before returning. Because release runs at the end of this
+// method (not at the end of Import), each record frees its resources immediately
+// after it completes, so the next record can acquire its slot.
+func (i *Importer) processRecordWithSlot(record model.ScanRecord, operator string) (model.ImportResult, error) {
+	release, err := i.Service.OpenRecord()
+	if err != nil {
+		return model.ImportResult{Line: record.Line, Serial: record.Serial, Status: "failed", Message: err.Error()}, fmt.Errorf("import line %d: %w", record.Line, err)
+	}
+	defer release()
+	return i.processRecord(record, operator), nil
 }
 
 func (i *Importer) processRecord(record model.ScanRecord, operator string) model.ImportResult {
